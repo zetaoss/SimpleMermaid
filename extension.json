@@ -1,0 +1,47 @@
+{
+	"name": "SimpleMermaid",
+	"version": "0.1.0",
+	"author": "jmnote",
+	"description": "Render Mermaid diagrams from <mermaid> tags using a CDN-hosted Mermaid bundle.",
+	"license-name": "Apache-2.0",
+	"type": "parserhook",
+	"requires": {
+		"MediaWiki": ">= 1.39"
+	},
+	"AutoloadNamespaces": {
+		"SimpleMermaid\\": "src/"
+	},
+	"Hooks": {
+		"ParserFirstCallInit": "SimpleMermaid\\Hooks::onParserFirstCallInit",
+		"OutputPageParserOutput": "SimpleMermaid\\Hooks::onOutputPageParserOutput"
+	},
+	"ResourceModules": {
+		"ext.simpleMermaid": {
+			"packageFiles": [
+				"resources/ext.simpleMermaid.js",
+				{
+					"name": "resources/icons.json",
+					"callback": "MediaWiki\\ResourceLoader\\CodexModule::getIcons",
+					"callbackParam": [
+						"cdxIconCode",
+						"cdxIconCheck",
+						"cdxIconCopy",
+						"cdxIconFullScreen"
+					]
+				}
+			],
+			"styles": [
+				"resources/ext.simpleMermaid.less"
+			],
+			"targets": [
+				"desktop",
+				"mobile"
+			]
+		}
+	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "",
+		"remoteExtPath": "SimpleMermaid"
+	},
+	"manifest_version": 2
+}
