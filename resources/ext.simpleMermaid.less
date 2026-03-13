@@ -36,7 +36,7 @@
 		justify-content: flex-end;
 	}
 
-	&-button {
+	&-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -59,20 +59,14 @@
 			color: var( --color-progressive--active );
 		}
 
+		&.is-copied {
+			color: var( --color-success );
+		}
+
 		&--icon {
 			width: 2rem;
 			height: 2rem;
 			padding: 0;
-		}
-
-		&--labelled {
-			height: 2rem;
-			gap: 0.45rem;
-			padding: 0 0.7rem;
-			font-size: 0.8125rem;
-			font-weight: 600;
-			line-height: 1;
-			white-space: nowrap;
 		}
 
 		&__icon {
@@ -88,82 +82,42 @@
 			}
 		}
 
-		&__icon-svg--flipped {
+		&__svg--flip {
 			transform: scaleX( -1 );
 		}
 	}
 
-	&-code-panel {
-		position: relative;
-		border-top: @border-width-base @border-style-base var( --border-color-subtle );
-		background: var( --background-color-interactive-subtle );
-	}
-
-	&-code {
-		margin: 0;
-		padding: 1rem 3.8rem 1rem 1rem;
-		overflow-x: auto;
-		color: var( --color-base );
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-		font-size: 0.875rem;
-		line-height: 1.6;
-		tab-size: 2;
-	}
-
-	&-copy-button {
-		position: absolute;
-		top: 0.7rem;
-		right: 0.7rem;
-		z-index: 1;
-		border-color: transparent;
-		background: transparent;
-		color: var( --color-subtle );
-
-		&:hover {
-			border-color: transparent;
-			background: var( --background-color-button-quiet--hover );
-			color: var( --color-base );
-		}
-
-		&.is-copied {
-			border-color: transparent;
-			background: transparent;
-			color: var( --color-success );
-		}
-	}
-
 	&-viewport {
+		position: relative;
 		box-sizing: border-box;
 		overflow: visible;
-		padding: 1rem;
+		padding: 0;
 		contain: inline-size;
-		position: relative;
 	}
 
-	&-overlay-actions {
+	&-actions {
 		position: absolute;
-		bottom: 0.75rem;
+		top: 0.75rem;
 		right: 0.75rem;
 		z-index: 2;
 		display: flex;
 		align-items: center;
-		justify-content: flex-end;
 		gap: 0.45rem;
 	}
 
+	&-top-btn {
+		width: 2rem;
+		height: 2rem;
+		padding: 0;
+		border-radius: 999px;
+		background: var( --background-color-interactive-subtle );
+	}
+
 	&-scroll {
-		overflow-x: hidden;
+		overflow-x: auto;
 		overflow-y: hidden;
 		position: relative;
-
-		&.is-dragging {
-			cursor: grabbing;
-
-			&,
-			* {
-				user-select: none;
-			}
-		}
+		-webkit-overflow-scrolling: touch;
 	}
 
 	&-stage {
@@ -171,6 +125,8 @@
 		width: max-content;
 		min-width: 100%;
 		position: relative;
+		padding: 1rem;
+		box-sizing: border-box;
 	}
 
 	&-canvas,
@@ -201,6 +157,61 @@
 		color: var( --color-error );
 	}
 
+	&-controls {
+		position: absolute;
+		top: 0.75rem;
+		right: 0.75rem;
+		z-index: 3;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+	}
+
+	&-ctl {
+		width: 2.25rem;
+		min-width: 2.25rem;
+		height: 2.25rem;
+		padding: 0;
+		background: var( --background-color-interactive-subtle );
+	}
+
+	&-pad {
+		display: grid;
+		grid-template-columns: repeat( 3, auto );
+		grid-template-areas:
+			". up ."
+			"left reset right"
+			". down .";
+		gap: 0.35rem;
+		align-items: center;
+	}
+
+	&-pad__up {
+		grid-area: up;
+	}
+
+	&-pad__left {
+		grid-area: left;
+	}
+
+	&-pad__reset {
+		grid-area: reset;
+	}
+
+	&-pad__right {
+		grid-area: right;
+	}
+
+	&-pad__down {
+		grid-area: down;
+	}
+
+	&-zoom {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
 	&:fullscreen {
 		width: 100%;
 		height: 100%;
@@ -218,16 +229,11 @@
 				flex: 1 1 auto;
 				min-height: 0;
 				overflow: hidden;
-				padding: 0;
 			}
 
 			&-scroll {
 				height: 100%;
 				overflow: hidden;
-				cursor: grab;
-				touch-action: none;
-				user-select: none;
-				-webkit-user-select: none;
 			}
 
 			&-stage {
@@ -242,6 +248,11 @@
 				position: absolute;
 				top: 0;
 				left: 0;
+			}
+
+			&-controls {
+				top: 1rem;
+				right: 1rem;
 			}
 		}
 	}
