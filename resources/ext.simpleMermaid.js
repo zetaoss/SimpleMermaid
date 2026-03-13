@@ -1,177 +1,143 @@
 ( function () {
-	var iconDefinitions = require( './icons.json' );
-	var CDN_URL = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-	var ICONS = {
-		check: iconDefinitions.cdxIconCheck,
-		code: iconDefinitions.cdxIconCode,
-		fullscreen: iconDefinitions.cdxIconFullScreen,
-		copy: iconDefinitions.cdxIconCopy
+	var icons = require( './icons.json' );
+	var URL = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+	var I = {
+		fs: icons.cdxIconFullScreen,
+		copy: icons.cdxIconCopy,
+		check: icons.cdxIconCheck,
+		exit: icons.cdxIconExitFullscreen,
+		up: icons.cdxIconCollapse,
+		down: icons.cdxIconExpand,
+		left: icons.cdxIconPrevious,
+		right: icons.cdxIconNext,
+		reset: icons.cdxIconReload,
+		plus: icons.cdxIconAdd,
+		minus: icons.cdxIconSubtract
 	};
-	var COPY_BUTTON_STATES = {
-		idle: {
-			label: 'Copy',
-			icon: ICONS.copy
-		},
-		copied: {
-			label: 'Copied',
-			icon: ICONS.check
-		}
+	var COPY = {
+		idle: { title: 'Copy', icon: I.copy },
+		done: { title: 'Copied', icon: I.check }
 	};
-	var loadPromise;
-	var renderQueue = Promise.resolve();
-	var widgets = [];
-	var widgetId = 0;
-	var themeObserver;
-	var themeSyncTimer;
-	var fullscreenListenerAttached = false;
+	var PAN = 80;
+	var ZOOM = 0.2;
+	var MAX = 2;
+	var loadP;
+	var initTheme = null;
+	var active = 0;
+	var wait = [];
+	var items = [];
+	var obs;
+	var themeObs;
+	var themeTimer;
+	var fsBound = false;
 
-	function loadMermaid() {
-		if ( !loadPromise ) {
-			loadPromise = import( CDN_URL ).then( function ( module ) {
-				var mermaid = module && module.default ? module.default : module;
+	function load() {
+		if ( !loadP ) {
+			loadP = import( URL ).then( function ( mod ) {
+				var m = mod && mod.default ? mod.default : mod;
 
-				if ( !mermaid || typeof mermaid.render !== 'function' ) {
+				if ( !m || typeof m.render !== 'function' ) {
 					throw new Error( 'Mermaid loaded, but the module API is unavailable.' );
 				}
 
-				return mermaid;
-			} ).catch( function ( error ) {
-				loadPromise = null;
-				throw error;
+				return m;
+			} ).catch( function ( err ) {
+				loadP = null;
+				throw err;
 			} );
 		}
 
-		return loadPromise;
+		return loadP;
 	}
 
-	function clamp( value, min, max ) {
-		return Math.min( max, Math.max( min, value ) );
+	function clamp( n, min, max ) {
+		return Math.min( max, Math.max( min, n ) );
 	}
 
-	function createElement( tagName, className, text ) {
-		var element = document.createElement( tagName );
+	function el( tag, cls, text ) {
+		var node = document.createElement( tag );
 
-		if ( className ) {
-			element.className = className;
+		if ( cls ) {
+			node.className = cls;
 		}
 
 		if ( typeof text === 'string' ) {
-			element.textContent = text;
+			node.textContent = text;
 		}
 
-		return element;
+		return node;
 	}
 
-	function getDocumentDirection() {
-		var dir = document.documentElement && document.documentElement.dir;
-
-		if ( dir === 'rtl' || dir === 'ltr' ) {
-			return dir;
-		}
-
-		return 'ltr';
+	function dir() {
+		var value = document.documentElement && document.documentElement.dir;
+		return value === 'rtl' || value === 'ltr' ? value : 'ltr';
 	}
 
-	function resolveIconMarkup( iconDefinition ) {
-		var dir = getDocumentDirection();
-		var icon = iconDefinition;
+	function iconData( icon ) {
+		var d = dir();
 		var markup;
-		var shouldFlip = false;
+		var flip = false;
 
 		if ( typeof icon === 'string' ) {
-			return {
-				markup: icon,
-				shouldFlip: false
-			};
+			return { markup: icon, flip: false };
 		}
 
 		if ( icon && typeof icon === 'object' ) {
-			if ( icon.rtl && dir === 'rtl' ) {
+			if ( icon.rtl && d === 'rtl' ) {
 				markup = icon.rtl;
 			} else if ( icon.ltr ) {
 				markup = icon.ltr;
-				shouldFlip = !!icon.shouldFlip && dir === 'rtl';
+				flip = !!icon.shouldFlip && d === 'rtl';
 			} else if ( typeof icon.default === 'string' ) {
 				markup = icon.default;
 			}
 		}
 
-		return {
-			markup: markup || '',
-			shouldFlip: shouldFlip
-		};
+		return { markup: markup || '', flip: flip };
 	}
 
-	function createIcon( iconDefinition ) {
-		var namespace = 'http://www.w3.org/2000/svg';
-		var svg = document.createElementNS( namespace, 'svg' );
-		var iconData = resolveIconMarkup( iconDefinition );
+	function iconEl( icon ) {
+		var data = iconData( icon );
+		var svg = document.createElementNS( 'http://www.w3.org/2000/svg', 'svg' );
 
 		svg.setAttribute( 'viewBox', '0 0 20 20' );
 		svg.setAttribute( 'aria-hidden', 'true' );
 		svg.setAttribute( 'focusable', 'false' );
 		svg.setAttribute( 'xmlns:xlink', 'http://www.w3.org/1999/xlink' );
-		svg.classList.add( 'simple-mermaid-button__icon-svg' );
-		svg.innerHTML = iconData.markup;
+		svg.classList.add( 'simple-mermaid-btn__svg' );
+		svg.innerHTML = data.markup;
 
-		if ( iconData.shouldFlip ) {
-			svg.classList.add( 'simple-mermaid-button__icon-svg--flipped' );
+		if ( data.flip ) {
+			svg.classList.add( 'simple-mermaid-btn__svg--flip' );
 		}
 
 		return svg;
 	}
 
-	function setButtonTitle( button, title ) {
-		button.title = title;
-		button.setAttribute( 'aria-label', title );
+	function setBtn( btn, title, icon ) {
+		var wrap = el( 'span', 'simple-mermaid-btn__icon' );
+
+		btn.title = title;
+		btn.setAttribute( 'aria-label', title );
+		btn.textContent = '';
+		wrap.appendChild( iconEl( icon ) );
+		btn.appendChild( wrap );
 	}
 
-	function setButtonContent( button, iconDefinition, label ) {
-		var iconWrap = button.querySelector( '.simple-mermaid-button__icon' );
-		var labelWrap = button.querySelector( '.simple-mermaid-button__label' );
+	function btn( title, icon, cls ) {
+		var node = el( 'button', 'simple-mermaid-btn simple-mermaid-btn--icon' + ( cls ? ' ' + cls : '' ) );
 
-		if ( !iconWrap ) {
-			iconWrap = createElement( 'span', 'simple-mermaid-button__icon' );
-			button.appendChild( iconWrap );
-		}
-
-		iconWrap.textContent = '';
-		iconWrap.appendChild( createIcon( iconDefinition ) );
-
-		if ( typeof label !== 'string' ) {
-			return;
-		}
-
-		if ( !labelWrap ) {
-			labelWrap = createElement( 'span', 'simple-mermaid-button__label' );
-			button.appendChild( labelWrap );
-		}
-
-		labelWrap.textContent = label;
+		node.type = 'button';
+		setBtn( node, title, icon );
+		return node;
 	}
 
-	function createButton( title, iconDefinition, extraClass, label ) {
-		var button = createElement(
-			'button',
-			'simple-mermaid-button ' +
-			( typeof label === 'string' ? 'simple-mermaid-button--labelled' : 'simple-mermaid-button--icon' ) +
-			( extraClass ? ' ' + extraClass : '' )
-		);
-
-		button.type = 'button';
-		setButtonTitle( button, title );
-		setButtonContent( button, iconDefinition, label );
-
-		return button;
+	function setCopy( s, cfg ) {
+		s.copyBtn.classList.toggle( 'is-copied', cfg === COPY.done );
+		setBtn( s.copyBtn, cfg.title, cfg.icon );
 	}
 
-	function setCopyButtonState( state, config ) {
-		state.copyButton.classList.toggle( 'is-copied', config === COPY_BUTTON_STATES.copied );
-		setButtonTitle( state.copyButton, config.label );
-		setButtonContent( state.copyButton, config.icon, config.label );
-	}
-
-	function getRenderableNodes( $content ) {
+	function list( $content ) {
 		var root = $content && $content[ 0 ] ? $content[ 0 ] : document;
 
 		return Array.prototype.slice.call(
@@ -181,11 +147,11 @@
 		} );
 	}
 
-	function normalizeSource( source ) {
-		return source.replace( /^(?:\r?\n)+/, '' );
+	function norm( src ) {
+		return src.replace( /^(?:\r?\n)+/, '' );
 	}
 
-	function isDarkMode() {
+	function isDark() {
 		var html = document.documentElement;
 
 		return html.classList.contains( 'skin-theme-clientpref-night' ) || (
@@ -195,190 +161,198 @@
 		);
 	}
 
-	function applySurfaceLayout( state ) {
-		var width = Math.max( 120, state.baseWidth * state.scale );
-		var height = Math.max( 80, state.baseHeight * state.scale );
+	function layout( s ) {
+		var w = Math.max( 120, s.w * s.scale );
+		var h = Math.max( 80, s.h * s.scale );
 
-		state.surface.style.width = width + 'px';
-		state.surface.style.height = height + 'px';
-		state.surface.style.transform = 'translate(' + state.panX + 'px, ' + state.panY + 'px)';
-		state.canvas.style.width = state.baseWidth + 'px';
-		state.canvas.style.height = state.baseHeight + 'px';
+		s.surf.style.width = w + 'px';
+		s.surf.style.height = h + 'px';
+		s.surf.style.transform = 'translate(' + s.x + 'px, ' + s.y + 'px)';
+		s.canvas.style.width = s.w + 'px';
+		s.canvas.style.height = s.h + 'px';
 
-		if ( state.svg ) {
-			state.svg.style.width = state.baseWidth + 'px';
-			state.svg.style.height = state.baseHeight + 'px';
-			state.svg.style.transform = 'scale(' + state.scale + ')';
-			state.svg.style.transformOrigin = 'top left';
+		if ( s.svg ) {
+			s.svg.style.width = s.w + 'px';
+			s.svg.style.height = s.h + 'px';
+			s.svg.style.transform = 'scale(' + s.scale + ')';
+			s.svg.style.transformOrigin = 'top left';
 		}
 	}
 
-	function centerInFullscreen( state ) {
+	function centerFs( s ) {
 		window.requestAnimationFrame( function () {
 			window.requestAnimationFrame( function () {
-				if ( document.fullscreenElement !== state.root ) {
+				if ( document.fullscreenElement !== s.root ) {
 					return;
 				}
 
-				state.panX = ( state.scroll.clientWidth - state.baseWidth * state.scale ) / 2;
-				state.panY = ( state.scroll.clientHeight - state.baseHeight * state.scale ) / 2;
-				applySurfaceLayout( state );
+				s.x = ( s.scroll.clientWidth - s.w * s.scale ) / 2;
+				s.y = ( s.scroll.clientHeight - s.h * s.scale ) / 2;
+				layout( s );
 			} );
 		} );
 	}
 
-	function resetView( state ) {
-		state.scale = 1;
-		state.panX = 0;
-		state.panY = 0;
-		applySurfaceLayout( state );
+	function reset( s ) {
+		s.scale = 1;
+		s.x = 0;
+		s.y = 0;
+		layout( s );
 	}
 
-	function setScale( state, nextScale, anchorX, anchorY ) {
-		var previousScale = state.scale;
-		var nextValue = clamp( nextScale, 0.5, 4 );
+	function resetFs( s ) {
+		reset( s );
 
-		if ( previousScale === 0 ) {
+		if ( document.fullscreenElement === s.root ) {
+			centerFs( s );
+		}
+	}
+
+	function zoomTo( s, next, ax, ay ) {
+		var prev = s.scale;
+		var scale = clamp( next, 0.5, 4 );
+
+		if ( prev === 0 ) {
 			return;
 		}
 
-		state.panX = anchorX - ( anchorX - state.panX ) * ( nextValue / previousScale );
-		state.panY = anchorY - ( anchorY - state.panY ) * ( nextValue / previousScale );
-		state.scale = nextValue;
-		applySurfaceLayout( state );
+		s.x = ax - ( ax - s.x ) * ( scale / prev );
+		s.y = ay - ( ay - s.y ) * ( scale / prev );
+		s.scale = scale;
+		layout( s );
 	}
 
-	function startDrag( state, event ) {
-		if ( event.button !== 0 ) {
-			return;
-		}
-
-		if ( event.target.closest && event.target.closest( 'a' ) ) {
-			return;
-		}
-
-		if ( document.fullscreenElement !== state.root ) {
-			return;
-		}
-
-		state.drag = {
-			pointerId: event.pointerId,
-			startX: event.clientX,
-			startY: event.clientY,
-			startPanX: state.panX,
-			startPanY: state.panY,
-			moved: false
-		};
-
-		if ( state.scroll.setPointerCapture && typeof event.pointerId === 'number' ) {
-			state.scroll.setPointerCapture( event.pointerId );
-		}
-
-		state.scroll.classList.add( 'is-dragging' );
-		event.preventDefault();
+	function showErr( s, err ) {
+		s.root.setAttribute( 'data-mermaid-state', 'error' );
+		s.err.hidden = false;
+		s.err.textContent = err && err.message ? err.message : 'Failed to render Mermaid diagram.';
+		console.error( 'SimpleMermaid:', err );
 	}
 
-	function moveDrag( state, event ) {
-		var deltaX;
-		var deltaY;
-
-		if ( !state.drag || state.drag.pointerId !== event.pointerId ) {
-			return;
-		}
-
-		deltaX = event.clientX - state.drag.startX;
-		deltaY = event.clientY - state.drag.startY;
-
-		if ( Math.abs( deltaX ) > 2 || Math.abs( deltaY ) > 2 ) {
-			state.drag.moved = true;
-		}
-
-		state.panX = state.drag.startPanX + deltaX;
-		state.panY = state.drag.startPanY + deltaY;
-		applySurfaceLayout( state );
-
-		if ( state.drag.moved ) {
-			event.preventDefault();
-		}
+	function hideErr( s ) {
+		s.err.hidden = true;
+		s.err.textContent = '';
 	}
 
-	function stopDrag( state ) {
-		if ( !state.drag ) {
-			return;
-		}
+	function drain() {
+		var s;
 
-		if (
-			state.scroll.releasePointerCapture &&
-			typeof state.drag.pointerId === 'number' &&
-			state.scroll.hasPointerCapture &&
-			state.scroll.hasPointerCapture( state.drag.pointerId )
-		) {
-			state.scroll.releasePointerCapture( state.drag.pointerId );
-		}
+		while ( active < MAX && wait.length ) {
+			s = wait.shift();
+			s.queued = false;
 
-		state.scroll.classList.remove( 'is-dragging' );
-
-		if ( state.drag.moved ) {
-			state.suppressClick = true;
-			setTimeout( function () {
-				state.suppressClick = false;
-			}, 0 );
-		}
-
-		state.drag = null;
-	}
-
-	function showError( state, error ) {
-		var message = error && error.message ? error.message : 'Failed to render Mermaid diagram.';
-
-		state.root.setAttribute( 'data-mermaid-state', 'error' );
-		state.error.hidden = false;
-		state.error.textContent = message;
-		console.error( 'SimpleMermaid:', error );
-	}
-
-	function hideError( state ) {
-		state.error.hidden = true;
-		state.error.textContent = '';
-	}
-
-	function updateFullscreenButtons() {
-		var fullscreenElement = document.fullscreenElement || null;
-
-		widgets = widgets.filter( function ( state ) {
-			return document.body && document.body.contains( state.root );
-		} );
-
-		widgets.forEach( function ( state ) {
-			var active = fullscreenElement === state.root;
-			var wasActive = !!state.isFullscreenActive;
-
-			if ( !active ) {
-				stopDrag( state );
-				resetView( state );
-			} else if ( !wasActive ) {
-				centerInFullscreen( state );
+			if ( s.busy || !document.body || !document.body.contains( s.root ) ) {
+				continue;
 			}
 
-			state.fullscreenButton.classList.toggle( 'is-active', active );
-			state.fullscreenButton.setAttribute( 'aria-pressed', active ? 'true' : 'false' );
-			state.isFullscreenActive = active;
+			active++;
+			( function ( cur ) {
+				cur.busy = true;
+				load()
+					.then( function ( m ) {
+						return renderOne( cur, m );
+					} )
+					.catch( function ( err ) {
+						showErr( cur, err );
+					} )
+					.finally( function () {
+						active--;
+						cur.busy = false;
+						if ( cur.requeue ) {
+							cur.requeue = false;
+							queue( cur, true );
+						}
+						drain();
+					} );
+			}( s ) );
+		}
+	}
+
+	function queue( s, front ) {
+		if ( s.queued ) {
+			return;
+		}
+
+		if ( s.busy ) {
+			s.requeue = true;
+			return;
+		}
+
+		s.queued = true;
+		if ( front ) {
+			wait.unshift( s );
+		} else {
+			wait.push( s );
+		}
+		drain();
+	}
+
+	function near(node) {
+		var rect = node.getBoundingClientRect();
+		var margin = window.innerHeight || 0;
+
+		return rect.bottom >= -margin && rect.top <= ( window.innerHeight || 0 ) + margin;
+	}
+
+	function ensureObs() {
+		if ( obs || !window.IntersectionObserver ) {
+			return;
+		}
+
+		obs = new IntersectionObserver( function ( entries ) {
+			entries.forEach( function ( entry ) {
+				var s = entry.target.__simpleMermaidState;
+
+				if ( !entry.isIntersecting || !s ) {
+					return;
+				}
+
+				obs.unobserve( entry.target );
+				queue( s, false );
+			} );
+		}, {
+			rootMargin: '100% 0px'
 		} );
 	}
 
-	function exitFullscreen() {
+	function syncFs() {
+		var fs = document.fullscreenElement || null;
+
+		items = items.filter( function ( s ) {
+			return document.body && document.body.contains( s.root );
+		} );
+
+		items.forEach( function ( s ) {
+			var on = fs === s.root;
+			var wasOn = !!s.fs;
+
+			if ( !on ) {
+				reset( s );
+			} else if ( !wasOn ) {
+				centerFs( s );
+			}
+
+			s.fsBtn.classList.toggle( 'is-active', on );
+			s.fsBtn.setAttribute( 'aria-pressed', on ? 'true' : 'false' );
+			s.actions.hidden = on;
+			s.ctrls.hidden = !on;
+			s.fs = on;
+		} );
+	}
+
+	function exitFs() {
 		if ( document.exitFullscreen ) {
-			document.exitFullscreen().catch( function ( error ) {
-				console.error( 'SimpleMermaid:', error );
+			document.exitFullscreen().catch( function ( err ) {
+				console.error( 'SimpleMermaid:', err );
 			} );
 		}
 	}
 
-	function pulseCopyButton( state ) {
-		clearTimeout( state.copyTimer );
-		setCopyButtonState( state, COPY_BUTTON_STATES.copied );
-		state.copyTimer = setTimeout( function () {
-			setCopyButtonState( state, COPY_BUTTON_STATES.idle );
+	function pulseCopy( s ) {
+		clearTimeout( s.copyTimer );
+		setCopy( s, COPY.done );
+		s.copyTimer = setTimeout( function () {
+			setCopy( s, COPY.idle );
 		}, 1200 );
 	}
 
@@ -388,14 +362,14 @@
 		}
 
 		return new Promise( function ( resolve, reject ) {
-			var textarea = document.createElement( 'textarea' );
+			var area = document.createElement( 'textarea' );
 
-			textarea.value = text;
-			textarea.setAttribute( 'readonly', '' );
-			textarea.style.position = 'fixed';
-			textarea.style.top = '-9999px';
-			document.body.appendChild( textarea );
-			textarea.select();
+			area.value = text;
+			area.setAttribute( 'readonly', '' );
+			area.style.position = 'fixed';
+			area.style.top = '-9999px';
+			document.body.appendChild( area );
+			area.select();
 
 			try {
 				if ( document.execCommand( 'copy' ) ) {
@@ -403,294 +377,282 @@
 				} else {
 					reject( new Error( 'Copy command failed.' ) );
 				}
-			} catch ( error ) {
-				reject( error );
+			} catch ( err ) {
+				reject( err );
 			} finally {
-				document.body.removeChild( textarea );
+				document.body.removeChild( area );
 			}
 		} );
 	}
 
-	function renderSvg( state, mermaid ) {
-		var renderId = 'simple-mermaid-' + ( ++widgetId );
-		var token = ++state.renderToken;
-		var resolvedTheme = isDarkMode() ? 'dark' : 'default';
+	function renderOne( s, m ) {
+		var id = 'simple-mermaid-' + Date.now() + '-' + Math.random().toString( 36 ).slice( 2 );
+		var token = ++s.token;
+		var theme = isDark() ? 'dark' : 'default';
 
-		state.root.setAttribute( 'data-mermaid-state', 'loading' );
-		state.resolvedTheme = resolvedTheme;
-		hideError( state );
+		s.root.setAttribute( 'data-mermaid-state', 'loading' );
+		s.theme = theme;
+		hideErr( s );
 
-		return new Promise( function ( resolve, reject ) {
-			renderQueue = renderQueue.catch( function () {
-				return null;
-			} ).then( function () {
-				mermaid.initialize( {
-					startOnLoad: false,
-					securityLevel: 'strict',
-					theme: resolvedTheme
-				} );
-
-				return mermaid.render( renderId, state.source );
+		if ( initTheme !== theme ) {
+			m.initialize( {
+				startOnLoad: false,
+				securityLevel: 'strict',
+				theme: theme
 			} );
+			initTheme = theme;
+		}
 
-			return renderQueue.then( function ( renderResult ) {
-				var box;
+		return m.render( id, s.src ).then( function ( out ) {
+			var box;
 
-				if ( token !== state.renderToken ) {
-					resolve();
-					return;
-				}
+			if ( token !== s.token ) {
+				return;
+			}
 
-				state.canvas.innerHTML = renderResult.svg;
-				state.svg = state.canvas.querySelector( 'svg' );
+			s.canvas.innerHTML = out.svg;
+			s.svg = s.canvas.querySelector( 'svg' );
 
-				if ( !state.svg ) {
-					throw new Error( 'Mermaid returned no SVG output.' );
-				}
+			if ( !s.svg ) {
+				throw new Error( 'Mermaid returned no SVG output.' );
+			}
 
-				if ( typeof renderResult.bindFunctions === 'function' ) {
-					renderResult.bindFunctions( state.canvas );
-				}
+			if ( typeof out.bindFunctions === 'function' ) {
+				out.bindFunctions( s.canvas );
+			}
 
-				state.svg.style.maxWidth = 'none';
-				state.svg.removeAttribute( 'width' );
-				state.svg.removeAttribute( 'height' );
+			s.svg.style.maxWidth = 'none';
+			s.svg.removeAttribute( 'width' );
+			s.svg.removeAttribute( 'height' );
 
-				if ( state.svg.viewBox && state.svg.viewBox.baseVal && state.svg.viewBox.baseVal.width ) {
-					state.baseWidth = state.svg.viewBox.baseVal.width;
-					state.baseHeight = state.svg.viewBox.baseVal.height;
-				} else if ( state.svg.getBBox ) {
-					box = state.svg.getBBox();
-					state.baseWidth = box.width || 320;
-					state.baseHeight = box.height || 180;
-				} else {
-					state.baseWidth = 320;
-					state.baseHeight = 180;
-				}
+			if ( s.svg.viewBox && s.svg.viewBox.baseVal && s.svg.viewBox.baseVal.width ) {
+				s.w = s.svg.viewBox.baseVal.width;
+				s.h = s.svg.viewBox.baseVal.height;
+			} else if ( s.svg.getBBox ) {
+				box = s.svg.getBBox();
+				s.w = box.width || 320;
+				s.h = box.height || 180;
+			} else {
+				s.w = 320;
+				s.h = 180;
+			}
 
-				applySurfaceLayout( state );
-				if ( document.fullscreenElement === state.root ) {
-					centerInFullscreen( state );
-				}
-				state.root.setAttribute( 'data-mermaid-state', 'rendered' );
-				resolve();
-			} ).catch( reject );
+			layout( s );
+
+			if ( document.fullscreenElement === s.root ) {
+				centerFs( s );
+			}
+
+			s.root.setAttribute( 'data-mermaid-state', 'rendered' );
 		} );
 	}
 
-	function renderWidget( state ) {
-		return loadMermaid()
-			.then( function ( mermaid ) {
-				return renderSvg( state, mermaid );
-			} )
-			.catch( function ( error ) {
-				showError( state, error );
-			} );
+	function pan( s, dx, dy ) {
+		if ( document.fullscreenElement !== s.root ) {
+			return;
+		}
+
+		s.x += dx;
+		s.y += dy;
+		layout( s );
 	}
 
-	function toggleCode( state ) {
-		state.codeOpen = !state.codeOpen;
-		state.codePanel.hidden = !state.codeOpen;
-		state.codeButton.classList.toggle( 'is-active', state.codeOpen );
-		state.codeButton.setAttribute( 'aria-pressed', state.codeOpen ? 'true' : 'false' );
-	}
-
-	function copySource( state ) {
-		copyText( state.source )
+	function copy( s ) {
+		copyText( s.src )
 			.then( function () {
-				pulseCopyButton( state );
+				pulseCopy( s );
 			} )
-			.catch( function ( error ) {
-				console.error( 'SimpleMermaid:', error );
+			.catch( function ( err ) {
+				console.error( 'SimpleMermaid:', err );
 			} );
 	}
 
-	function toggleFullscreen( state ) {
-		if ( !state.root.requestFullscreen ) {
+	function toggleFs( s ) {
+		if ( !s.root.requestFullscreen ) {
 			return;
 		}
 
-		if ( document.fullscreenElement === state.root ) {
-			exitFullscreen();
+		if ( document.fullscreenElement === s.root ) {
+			exitFs();
 			return;
 		}
 
-		state.root.requestFullscreen().catch( function ( error ) {
-			console.error( 'SimpleMermaid:', error );
+		s.root.requestFullscreen().catch( function ( err ) {
+			console.error( 'SimpleMermaid:', err );
 		} );
 	}
 
-	function scheduleThemeSync() {
-		clearTimeout( themeSyncTimer );
-		themeSyncTimer = setTimeout( function () {
-			widgets.forEach( function ( state ) {
-				if ( !document.body || !document.body.contains( state.root ) ) {
-					return;
-				}
+	function zoom( s, step ) {
+		zoomTo(
+			s,
+			s.scale + step,
+			s.scroll.clientWidth / 2,
+			s.scroll.clientHeight / 2
+		);
+	}
 
-				if ( ( isDarkMode() ? 'dark' : 'default' ) !== state.resolvedTheme ) {
-					renderWidget( state );
+	function syncThemeLater() {
+		clearTimeout( themeTimer );
+		themeTimer = setTimeout( function () {
+			items.forEach( function ( s ) {
+				if ( document.body && document.body.contains( s.root ) && s.theme !== ( isDark() ? 'dark' : 'default' ) ) {
+					queue( s, true );
 				}
 			} );
 		}, 50 );
 	}
 
-	function ensureThemeObserver() {
-		if ( themeObserver || !window.MutationObserver || !document.body ) {
+	function ensureThemeObs() {
+		if ( themeObs || !window.MutationObserver || !document.body ) {
 			return;
 		}
 
-		themeObserver = new MutationObserver( scheduleThemeSync );
-		themeObserver.observe( document.documentElement, {
+		themeObs = new MutationObserver( syncThemeLater );
+		themeObs.observe( document.documentElement, {
 			attributes: true,
 			attributeFilter: [ 'class' ]
 		} );
 	}
 
-	function ensureFullscreenListener() {
-		if ( fullscreenListenerAttached ) {
+	function ensureFs() {
+		if ( fsBound ) {
 			return;
 		}
 
-		document.addEventListener( 'fullscreenchange', updateFullscreenButtons );
-		fullscreenListenerAttached = true;
+		document.addEventListener( 'fullscreenchange', syncFs );
+		fsBound = true;
 	}
 
-	function mountNode( node ) {
-		var source = normalizeSource( node.textContent );
-		var state = {
+	function mount(node) {
+		var s = {
 			root: node,
-			source: source,
-			resolvedTheme: null,
+			src: norm( node.textContent ),
+			theme: null,
 			scale: 1,
-			panX: 0,
-			panY: 0,
-			baseWidth: 320,
-			baseHeight: 180,
-			renderToken: 0,
-			codeOpen: false,
-			isFullscreenActive: false
+			x: 0,
+			y: 0,
+			w: 320,
+			h: 180,
+			token: 0,
+			queued: false,
+			busy: false,
+			requeue: false,
+			fs: false
 		};
-		var codePanel = createElement( 'div', 'simple-mermaid-code-panel' );
-		var code = createElement( 'pre', 'simple-mermaid-code' );
-		var copyButton = createButton(
-			COPY_BUTTON_STATES.idle.label,
-			COPY_BUTTON_STATES.idle.icon,
-			'simple-mermaid-copy-button',
-			COPY_BUTTON_STATES.idle.label
-		);
-		var viewport = createElement( 'div', 'simple-mermaid-viewport' );
-		var overlayActions = createElement( 'div', 'simple-mermaid-overlay-actions' );
-		var scroll = createElement( 'div', 'simple-mermaid-scroll' );
-		var stage = createElement( 'div', 'simple-mermaid-stage' );
-		var surface = createElement( 'div', 'simple-mermaid-surface' );
-		var canvas = createElement( 'div', 'simple-mermaid-canvas' );
-		var error = createElement( 'div', 'simple-mermaid-error' );
-		var codeButton = createButton( 'Toggle code', ICONS.code );
-		var fullscreenButton = createButton( 'Toggle fullscreen', ICONS.fullscreen );
+		var actions = el( 'div', 'simple-mermaid-actions' );
+		var fsBtn = btn( 'Toggle fullscreen', I.fs, 'simple-mermaid-top-btn' );
+		var copyBtn = btn( COPY.idle.title, COPY.idle.icon, 'simple-mermaid-top-btn' );
+		var ctrls = el( 'div', 'simple-mermaid-controls' );
+		var pad = el( 'div', 'simple-mermaid-pad' );
+		var zoomCol = el( 'div', 'simple-mermaid-zoom' );
+		var viewport = el( 'div', 'simple-mermaid-viewport' );
+		var scroll = el( 'div', 'simple-mermaid-scroll' );
+		var stage = el( 'div', 'simple-mermaid-stage' );
+		var surf = el( 'div', 'simple-mermaid-surface' );
+		var canvas = el( 'div', 'simple-mermaid-canvas' );
+		var err = el( 'div', 'simple-mermaid-error' );
+		var exitBtn = btn( 'Close fullscreen', I.exit, 'simple-mermaid-ctl' );
+		var plusBtn = btn( 'Zoom in', I.plus, 'simple-mermaid-ctl' );
+		var minusBtn = btn( 'Zoom out', I.minus, 'simple-mermaid-ctl' );
+		var upBtn = btn( 'Pan up', I.up, 'simple-mermaid-ctl simple-mermaid-pad__up' );
+		var leftBtn = btn( 'Pan left', I.left, 'simple-mermaid-ctl simple-mermaid-pad__left' );
+		var resetBtn = btn( 'Reset view', I.reset, 'simple-mermaid-ctl simple-mermaid-pad__reset' );
+		var rightBtn = btn( 'Pan right', I.right, 'simple-mermaid-ctl simple-mermaid-pad__right' );
+		var downBtn = btn( 'Pan down', I.down, 'simple-mermaid-ctl simple-mermaid-pad__down' );
 
-		node.__simpleMermaidState = state;
+		node.__simpleMermaidState = s;
 		node.classList.remove( 'mermaid' );
 		node.setAttribute( 'data-simple-mermaid-mounted', '1' );
 		node.setAttribute( 'data-mermaid-state', 'idle' );
 		node.textContent = '';
 
-		codePanel.hidden = true;
-		error.hidden = true;
-		error.setAttribute( 'role', 'status' );
-		code.textContent = source;
-		codeButton.setAttribute( 'aria-pressed', 'false' );
-		fullscreenButton.setAttribute( 'aria-pressed', 'false' );
+		ctrls.hidden = true;
+		err.hidden = true;
+		err.setAttribute( 'role', 'status' );
+		fsBtn.setAttribute( 'aria-pressed', 'false' );
 
-		surface.appendChild( canvas );
-		stage.appendChild( surface );
+		actions.appendChild( fsBtn );
+		actions.appendChild( copyBtn );
+		zoomCol.appendChild( exitBtn );
+		zoomCol.appendChild( plusBtn );
+		zoomCol.appendChild( minusBtn );
+		pad.appendChild( upBtn );
+		pad.appendChild( leftBtn );
+		pad.appendChild( resetBtn );
+		pad.appendChild( rightBtn );
+		pad.appendChild( downBtn );
+		ctrls.appendChild( pad );
+		ctrls.appendChild( zoomCol );
+
+		surf.appendChild( canvas );
+		stage.appendChild( surf );
 		scroll.appendChild( stage );
-		viewport.appendChild( overlayActions );
+		viewport.appendChild( actions );
+		viewport.appendChild( ctrls );
 		viewport.appendChild( scroll );
-		codePanel.appendChild( copyButton );
-		codePanel.appendChild( code );
-
-		overlayActions.appendChild( codeButton );
-		overlayActions.appendChild( fullscreenButton );
-
-		codeButton.addEventListener( 'click', function () {
-			toggleCode( state );
-		} );
-		fullscreenButton.addEventListener( 'click', function () {
-			toggleFullscreen( state );
-		} );
-		copyButton.addEventListener( 'click', function () {
-			copySource( state );
-		} );
-		scroll.addEventListener( 'pointerdown', function ( event ) {
-			startDrag( state, event );
-		} );
-		scroll.addEventListener( 'pointermove', function ( event ) {
-			moveDrag( state, event );
-		} );
-		scroll.addEventListener( 'pointerup', function () {
-			stopDrag( state );
-		} );
-		scroll.addEventListener( 'pointercancel', function () {
-			stopDrag( state );
-		} );
-		scroll.addEventListener( 'click', function ( event ) {
-			if ( state.suppressClick ) {
-				event.preventDefault();
-				event.stopPropagation();
-				state.suppressClick = false;
-			}
-		}, true );
-		scroll.addEventListener( 'dragstart', function ( event ) {
-			event.preventDefault();
-		} );
-		scroll.addEventListener( 'wheel', function ( event ) {
-			var rect = scroll.getBoundingClientRect();
-			var nextScale = state.scale + ( event.deltaY < 0 ? 0.1 : -0.1 );
-
-			if ( document.fullscreenElement !== state.root ) {
-				return;
-			}
-
-			event.preventDefault();
-			setScale(
-				state,
-				nextScale,
-				event.clientX - rect.left,
-				event.clientY - rect.top
-			);
-		}, { passive: false } );
-
-		state.viewport = viewport;
-		state.scroll = scroll;
-		state.surface = surface;
-		state.canvas = canvas;
-		state.codePanel = codePanel;
-		state.error = error;
-		state.codeButton = codeButton;
-		state.fullscreenButton = fullscreenButton;
-		state.copyButton = copyButton;
-
 		node.appendChild( viewport );
-		node.appendChild( codePanel );
-		node.appendChild( error );
+		node.appendChild( err );
 
-		applySurfaceLayout( state );
-		widgets.push( state );
-		updateFullscreenButtons();
-		renderWidget( state );
+		fsBtn.addEventListener( 'click', function () {
+			toggleFs( s );
+		} );
+		copyBtn.addEventListener( 'click', function () {
+			copy( s );
+		} );
+		exitBtn.addEventListener( 'click', exitFs );
+		plusBtn.addEventListener( 'click', function () {
+			zoom( s, ZOOM );
+		} );
+		minusBtn.addEventListener( 'click', function () {
+			zoom( s, -ZOOM );
+		} );
+		upBtn.addEventListener( 'click', function () {
+			pan( s, 0, PAN );
+		} );
+		leftBtn.addEventListener( 'click', function () {
+			pan( s, PAN, 0 );
+		} );
+		resetBtn.addEventListener( 'click', function () {
+			resetFs( s );
+		} );
+		rightBtn.addEventListener( 'click', function () {
+			pan( s, -PAN, 0 );
+		} );
+		downBtn.addEventListener( 'click', function () {
+			pan( s, 0, -PAN );
+		} );
+
+		s.scroll = scroll;
+		s.surf = surf;
+		s.canvas = canvas;
+		s.err = err;
+		s.actions = actions;
+		s.ctrls = ctrls;
+		s.fsBtn = fsBtn;
+		s.copyBtn = copyBtn;
+
+		layout( s );
+		items.push( s );
+		syncFs();
+
+		if ( near( node ) || !obs ) {
+			queue( s, true );
+		} else {
+			obs.observe( node );
+		}
 	}
 
 	function render( $content ) {
-		var nodes = getRenderableNodes( $content );
+		var nodes = list( $content );
 
 		if ( !nodes.length ) {
 			return;
 		}
 
-		ensureThemeObserver();
-		ensureFullscreenListener();
-		nodes.forEach( mountNode );
+		ensureThemeObs();
+		ensureFs();
+		ensureObs();
+		nodes.forEach( mount );
 	}
 
 	mw.hook( 'wikipage.content' ).add( render );
