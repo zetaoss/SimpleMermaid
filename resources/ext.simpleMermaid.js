@@ -258,6 +258,10 @@
 					.finally( function () {
 						active--;
 						cur.busy = false;
+						if ( cur.requeue ) {
+							cur.requeue = false;
+							queue( cur, true );
+						}
 						drain();
 					} );
 			}( s ) );
@@ -265,7 +269,12 @@
 	}
 
 	function queue( s, front ) {
-		if ( s.queued || s.busy ) {
+		if ( s.queued ) {
+			return;
+		}
+
+		if ( s.busy ) {
+			s.requeue = true;
 			return;
 		}
 
@@ -527,6 +536,7 @@
 			token: 0,
 			queued: false,
 			busy: false,
+			requeue: false,
 			fs: false
 		};
 		var actions = el( 'div', 'simple-mermaid-actions' );

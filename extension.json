@@ -23,16 +23,16 @@
 					"name": "resources/icons.json",
 					"callback": "MediaWiki\\ResourceLoader\\CodexModule::getIcons",
 					"callbackParam": [
-						"cdxIconFullScreen",
-						"cdxIconCopy",
-						"cdxIconCheck",
-						"cdxIconExitFullscreen",
-						"cdxIconPrevious",
-						"cdxIconNext",
-						"cdxIconCollapse",
-						"cdxIconExpand",
-						"cdxIconReload",
 						"cdxIconAdd",
+						"cdxIconCheck",
+						"cdxIconCollapse",
+						"cdxIconCopy",
+						"cdxIconExitFullscreen",
+						"cdxIconExpand",
+						"cdxIconFullScreen",
+						"cdxIconNext",
+						"cdxIconPrevious",
+						"cdxIconReload",
 						"cdxIconSubtract"
 					]
 				}

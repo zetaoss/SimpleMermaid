@@ -32,7 +32,7 @@ graph LR
 
 ## UI Controls
 
-- Diagram overlay buttons: `Code`, `Fullscreen`
-- Code panel: top-right `Copy` button with `Copied` feedback
-- Fullscreen only: mouse wheel zoom, drag pan, exit to reset view
+- Diagram overlay buttons: `Copy`, `Fullscreen`
+- Copy button: shows `Copied` feedback after copying the Mermaid source
+- Fullscreen only: zoom in/out, directional pan, reset view, and exit
 - Dark mode: Mermaid theme follows MediaWiki skin theme classes, and component colors follow Codex design tokens
