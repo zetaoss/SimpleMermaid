@@ -1,6 +1,6 @@
 {
 	"name": "SimpleMermaid",
-	"version": "0.1.0",
+	"version": "0.1.2",
 	"author": "jmnote",
 	"description": "Render Mermaid diagrams from <mermaid> tags using a CDN-hosted Mermaid bundle.",
 	"license-name": "Apache-2.0",
